@@ -44,6 +44,7 @@
   <div class="bar">
     <button onclick="saveFile()">Save .txt</button>
     <button onclick="snapshot()">Copy as link</button>
+    <button onclick="copyDataUrl()">Copy data URL</button>
     <span id="status"></span>
   </div>
   <textarea id="snap" readonly placeholder="share link..."></textarea>
@@ -71,12 +72,15 @@
       catch (e) { storageOK = false; return null; }
     }
 
-    // base64url <-> UTF-8, for text carried in the URL hash
-    function encodeContent(str) {
+    function utf8ToBase64(str) {
       var bytes = new TextEncoder().encode(str);
       var bin = "";
       for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      return btoa(bin);
+    }
+    // base64url <-> UTF-8, for text carried in the URL hash
+    function encodeContent(str) {
+      return utf8ToBase64(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     }
     function decodeContent(b64) {
       b64 = b64.replace(/-/g, "+").replace(/_/g, "/");
@@ -163,33 +167,45 @@
       URL.revokeObjectURL(url);
     }
 
-    // Shareable link: current text encoded into the hash of this page's own URL
-    function snapshot() {
-      var base = location.href.replace(/#.*$/, "");
-      var link = base + "#" + encodeContent(editor.innerText);
-
-      function ok() {
-        status.textContent = "Link copied to clipboard.";
-        status.className = "";
-      }
+    function copyText(text, okMsg) {
       function manual() {
         var box = document.getElementById("snap");
         box.style.display = "block";
-        box.value = link;
+        box.value = text;
         box.focus();
         box.select();
-        box.setSelectionRange(0, link.length); // iOS ignores select() on readonly fields
+        box.setSelectionRange(0, text.length); // iOS ignores select() on readonly fields
         var copied = false;
         try { copied = document.execCommand("copy"); } catch (e) {}
-        status.textContent = copied ? "Link copied to clipboard." : "Link ready - tap and hold the box to copy.";
+        status.textContent = copied ? okMsg : "Ready - tap and hold the box to copy.";
         status.className = "";
       }
-
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(link).then(ok, manual);
+        navigator.clipboard.writeText(text).then(function () {
+          status.textContent = okMsg;
+          status.className = "";
+        }, manual);
       } else {
         manual();
       }
+    }
+
+    // Shareable link: current text in the hash of this page's own URL (needs the site to open).
+    function snapshot() {
+      var base = location.href.replace(/#.*$/, "");
+      copyText(base + "#" + encodeContent(editor.innerText), "Link copied to clipboard.");
+    }
+
+    // Self-contained copy: the whole page with the current text baked into a
+    // data: URL, so it opens with no site and no network.
+    function copyDataUrl() {
+      var clone = document.documentElement.cloneNode(true);
+      var st = clone.querySelector("#status");
+      if (st) { st.textContent = ""; st.className = ""; }
+      var snap = clone.querySelector("#snap");
+      if (snap) snap.removeAttribute("style");
+      var html = "<!DOCTYPE html>\n" + clone.outerHTML;
+      copyText("data:text/html;charset=utf-8;base64," + utf8ToBase64(html), "Data URL copied - self-contained, no network needed.");
     }
 
     if ("serviceWorker" in navigator) {

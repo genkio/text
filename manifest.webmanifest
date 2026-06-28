@@ -1,5 +1,5 @@
 {
-  "name": "Text Editor",
+  "name": "Text",
   "short_name": "Text",
   "description": "Dead-simple text editor with autosave, .txt export, and shareable links. Works offline.",
   "start_url": ".",

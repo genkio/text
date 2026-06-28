@@ -26,6 +26,15 @@
   #status { font-size: 13px; color: #666; }
   #status.warn { color: #b00; }
   #snap { width: 100%; height: 70px; margin-top: 8px; font-size: 11px; display: none; box-sizing: border-box; }
+  dialog { border: 1px solid #000; padding: 16px; max-width: 92vw; width: 520px; box-sizing: border-box; }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+  dialog h2 { margin: 0 0 8px; font-size: 18px; }
+  dialog p { margin: 0 0 10px; font-size: 14px; color: #333; }
+  #sharePreview { white-space: pre-wrap; word-break: break-word; overflow: auto; max-height: 40vh; border: 1px solid #ccc; background: #fafafa; padding: 8px; font-size: 14px; }
+  #sharePreview:empty::before { content: "(empty)"; color: #999; }
+  .actions { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }
+  .actions button { padding: 8px 16px; font-size: 15px; }
+  .actions .primary { background: #111; color: #fff; border: 1px solid #111; }
 </style>
 </head>
 <body>
@@ -36,6 +45,18 @@
     <span id="status"></span>
   </div>
   <textarea id="snap" readonly placeholder="share link..."></textarea>
+
+  <dialog id="shareDialog">
+    <form method="dialog">
+      <h2>Open shared text?</h2>
+      <p>This link's text differs from the note saved here. Overwriting replaces your current note.</p>
+      <div id="sharePreview"></div>
+      <div class="actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button value="overwrite" class="primary">Overwrite</button>
+      </div>
+    </form>
+  </dialog>
 
   <script>
     var KEY = "textEditorContent";
@@ -64,8 +85,22 @@
       return new TextDecoder().decode(bytes);
     }
 
+    function showShareDialog(shared, onChoice) {
+      var dlg = document.getElementById("shareDialog");
+      document.getElementById("sharePreview").textContent = shared;
+      if (typeof dlg.showModal !== "function") {
+        onChoice(window.confirm("Open shared text from this link? This replaces the note saved here."));
+        return;
+      }
+      dlg.addEventListener("close", function () {
+        onChoice(dlg.returnValue === "overwrite");
+      }, { once: true });
+      dlg.showModal();
+    }
+
     // A shared link (#content) loads into the editor. If a different note is
-    // already saved here, confirm first so a link can't silently wipe it.
+    // already saved here, preview it in a modal first so a link can't silently
+    // wipe local work.
     (function init() {
       var saved = readSaved();
       if (!storageOK) {
@@ -77,22 +112,28 @@
       function stripHash() {
         try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
       }
+      function load(text) {
+        editor.innerText = text;
+        if (storageOK) { try { localStorage.setItem(KEY, text); } catch (e) {} }
+      }
 
       var hash = location.hash.slice(1);
       if (hash) {
-        try {
-          var shared = decodeContent(hash);
-          var keepCurrent = current.trim() !== "" && shared !== current &&
-            !window.confirm("Open shared text from this link?\n\nThis replaces the note currently saved here. Cancel to keep your note.");
-          if (keepCurrent) {
-            editor.innerText = current;
+        var shared = null;
+        try { shared = decodeContent(hash); } catch (e) { shared = null; }
+        if (shared !== null) {
+          if (current.trim() === "" || shared === current) {
+            load(shared);
+            stripHash();
           } else {
-            editor.innerText = shared;
-            if (storageOK) { try { localStorage.setItem(KEY, shared); } catch (e) {} }
+            editor.innerText = current;
+            showShareDialog(shared, function (overwrite) {
+              if (overwrite) load(shared);
+              stripHash();
+            });
           }
-          stripHash();
           return;
-        } catch (e) { /* malformed hash, fall back to saved text */ }
+        }
       }
       if (current !== "" && editor.innerText.trim() === "") editor.innerText = current;
     })();

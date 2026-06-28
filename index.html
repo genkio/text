@@ -64,28 +64,37 @@
       return new TextDecoder().decode(bytes);
     }
 
-    // A shared link (#content) wins over autosaved text, but only overwrites
-    // local storage when there's nothing to lose - so opening a link never
-    // silently destroys notes already saved on this device.
+    // A shared link (#content) loads into the editor. If a different note is
+    // already saved here, confirm first so a link can't silently wipe it.
     (function init() {
       var saved = readSaved();
       if (!storageOK) {
         status.textContent = "Autosave is off here (storage blocked). Save the page as .html and open it to enable it.";
         status.className = "warn";
       }
+      var current = saved !== null ? saved : "";
+
+      function stripHash() {
+        try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+      }
+
       var hash = location.hash.slice(1);
       if (hash) {
         try {
           var shared = decodeContent(hash);
-          editor.innerText = shared;
-          if (storageOK && (saved === null || saved.trim() === "")) {
-            try { localStorage.setItem(KEY, shared); } catch (e) {}
+          var keepCurrent = current.trim() !== "" && shared !== current &&
+            !window.confirm("Open shared text from this link?\n\nThis replaces the note currently saved here. Cancel to keep your note.");
+          if (keepCurrent) {
+            editor.innerText = current;
+          } else {
+            editor.innerText = shared;
+            if (storageOK) { try { localStorage.setItem(KEY, shared); } catch (e) {} }
           }
-          try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+          stripHash();
           return;
         } catch (e) { /* malformed hash, fall back to saved text */ }
       }
-      if (saved !== null && editor.innerText.trim() === "") editor.innerText = saved;
+      if (current !== "" && editor.innerText.trim() === "") editor.innerText = current;
     })();
 
     editor.addEventListener("input", function () {

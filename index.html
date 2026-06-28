@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Text Editor</title>
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Text">
 <style>
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; padding: 12px; font-family: system-ui, -apple-system, sans-serif; box-sizing: border-box; }
@@ -26,7 +35,7 @@
     <button onclick="snapshot()">Copy as link</button>
     <span id="status"></span>
   </div>
-  <textarea id="snap" readonly placeholder="snapshot URL..."></textarea>
+  <textarea id="snap" readonly placeholder="share link..."></textarea>
 
   <script>
     var KEY = "textEditorContent";
@@ -34,19 +43,51 @@
     var status = document.getElementById("status");
     var storageOK = true;
 
-    // Restore on load (only if storage works and the editor is empty)
-    try {
-      var saved = localStorage.getItem(KEY);
-      if (saved !== null && editor.innerText.trim() === "") {
-        editor.innerText = saved;
-      }
-    } catch (e) {
-      storageOK = false;
-      status.textContent = "Autosave is off here (data: URL / sandbox blocks storage). Save this as a .html file and open it to enable it.";
-      status.className = "warn";
+    function readSaved() {
+      try { return localStorage.getItem(KEY); }
+      catch (e) { storageOK = false; return null; }
     }
 
-    // Autosave on every edit
+    // base64url <-> UTF-8, for text carried in the URL hash
+    function encodeContent(str) {
+      var bytes = new TextEncoder().encode(str);
+      var bin = "";
+      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+    function decodeContent(b64) {
+      b64 = b64.replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
+
+    // A shared link (#content) wins over autosaved text, but only overwrites
+    // local storage when there's nothing to lose - so opening a link never
+    // silently destroys notes already saved on this device.
+    (function init() {
+      var saved = readSaved();
+      if (!storageOK) {
+        status.textContent = "Autosave is off here (storage blocked). Save the page as .html and open it to enable it.";
+        status.className = "warn";
+      }
+      var hash = location.hash.slice(1);
+      if (hash) {
+        try {
+          var shared = decodeContent(hash);
+          editor.innerText = shared;
+          if (storageOK && (saved === null || saved.trim() === "")) {
+            try { localStorage.setItem(KEY, shared); } catch (e) {}
+          }
+          try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+          return;
+        } catch (e) { /* malformed hash, fall back to saved text */ }
+      }
+      if (saved !== null && editor.innerText.trim() === "") editor.innerText = saved;
+    })();
+
     editor.addEventListener("input", function () {
       if (!storageOK) return;
       try {
@@ -58,7 +99,6 @@
       }
     });
 
-    // Download as .txt (your original feature, with the revokeObjectURL typo fixed)
     function saveFile() {
       var blob = new Blob([editor.innerText], { type: "text/plain" });
       var url = URL.createObjectURL(blob);
@@ -71,18 +111,39 @@
       URL.revokeObjectURL(url);
     }
 
-    // Build a fresh data: URL with the current text baked into the page
+    // Shareable link: current text encoded into the hash of this page's own URL
     function snapshot() {
-      var html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
-      var b64 = btoa(unescape(encodeURIComponent(html)));
-      var dataUrl = "data:text/html;base64," + b64;
-      var box = document.getElementById("snap");
-      box.style.display = "block";
-      box.value = dataUrl;
-      box.focus();
-      box.select();
-      status.textContent = "Link ready. Press Ctrl/Cmd+C to copy, then paste it as a bookmark.";
-      status.className = "";
+      var base = location.href.replace(/#.*$/, "");
+      var link = base + "#" + encodeContent(editor.innerText);
+
+      function ok() {
+        status.textContent = "Link copied to clipboard.";
+        status.className = "";
+      }
+      function manual() {
+        var box = document.getElementById("snap");
+        box.style.display = "block";
+        box.value = link;
+        box.focus();
+        box.select();
+        box.setSelectionRange(0, link.length); // iOS ignores select() on readonly fields
+        var copied = false;
+        try { copied = document.execCommand("copy"); } catch (e) {}
+        status.textContent = copied ? "Link copied to clipboard." : "Link ready - tap and hold the box to copy.";
+        status.className = "";
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(ok, manual);
+      } else {
+        manual();
+      }
+    }
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js").catch(function () {});
+      });
     }
   </script>
 </body>

@@ -145,6 +145,10 @@
         navigator.serviceWorker.register("sw.js").catch(function () {});
       });
     }
+
+    // Ask the browser to keep the offline cache (iOS Safari tabs may ignore this;
+    // Add to Home Screen is the reliable path there).
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   </script>
 </body>
 </html>
